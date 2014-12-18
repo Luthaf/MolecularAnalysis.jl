@@ -101,7 +101,7 @@ return a ``Float64`` (the value of the potential or the force at this distance).
 
     Creates an UserPotential instance by automatically computing the force
     function using a finite difference method, as provided by the
-    `Calculus <http://github.com/johnmyleswhite/Calculus.jl>`_ package.
+    `Calculus <https://github.com/johnmyleswhite/Calculus.jl>`_ package.
 
 Here is an example of the user potential usage:
 
