@@ -10,12 +10,12 @@
 
 typealias AtomType Union(Integer, String)
 
-export add_interaction, set_cell, read_topology, read_positions, add_output ,
-       set_frame
+export add_interaction, set_cell, read_topology, read_positions, set_frame,
+       add_compute, add_enforce, add_check, add_output
 
 # Todo: Way to add a catchall interaction
-function add_interaction(sim::MDSimulation, potential::BasePotential, atoms::(AtomType, AtomType))
-    pot = Potential(potential)
+function add_interaction(sim::MolecularDynamic, potential::BasePotential, atoms::(AtomType, AtomType); cutoff=12.0)
+    pot = Potential(potential, cutoff=cutoff)
     atom_i, atom_j = get_atom_id(sim, atoms...)
 
     sim.interactions[(atom_i, atom_j)] = pot
@@ -24,43 +24,33 @@ function add_interaction(sim::MDSimulation, potential::BasePotential, atoms::(At
     end
 end
 
-add_interaction(sim::MDSimulation, pot::BasePotential, at_i::AtomType) = add_interaction(sim, pot, (at_i, at_i))
+add_interaction(sim::MolecularDynamic, pot::BasePotential, at_i::AtomType) = add_interaction(sim, pot, (at_i, at_i))
 
 # TODO: add interaction while specifing the cutoff.
 
-function get_atom_id(sim::MDSimulation, atom_i::AtomType, atom_j::AtomType)
+function get_atom_id(sim::MolecularDynamic, atom_i::AtomType, atom_j::AtomType)
     i = isa(atom_i, Integer) ? atom_i : get_id_from_name(sim.topology, atom_i)
     j = isa(atom_j, Integer) ? atom_j : get_id_from_name(sim.topology, atom_j)
     return (i, j)
 end
 
-function Simulation(sim_type::String, args...)
-    if lowercase(sim_type) == "md"
-        return MDSimulation(args...)
-    else
-        throw(SimulationConfigurationError(
-            "Unknown simulation type: $sim_type"
-        ))
-    end
-end
-
-function set_cell(sim::MDSimulation, cell::UnitCell)
+function set_cell(sim::MolecularDynamic, cell::UnitCell)
     sim.cell = cell
 end
 
-function set_cell(sim::MDSimulation, size)
+function set_cell(sim::MolecularDynamic, size)
     return set_cell(sim, UnitCell(size...))
 end
 
-function set_cell{T<:Type{Universe.AbstractCellType}}(sim::MDSimulation, cell_type::T, size = (0.0,))
+function set_cell{T<:Type{Universe.AbstractCellType}}(sim::MolecularDynamic, cell_type::T, size = (0.0,))
     return set_cell(sim, UnitCell(cell_type(), size...))
 end
 
-function read_topology(sim::MDSimulation, filename::AbstractString)
+function read_topology(sim::MolecularDynamic, filename::AbstractString)
     sim.topology = Topology(filename)
 end
 
-function read_positions(sim::MDSimulation, filename::AbstractString)
+function read_positions(sim::MolecularDynamic, filename::AbstractString)
     reader = opentraj(filename, cell=sim.cell, topology=sim.topology)
     read_frame!(reader, 1, sim.frame)
 
@@ -69,18 +59,62 @@ function read_positions(sim::MDSimulation, filename::AbstractString)
 end
 
 # Todo:
-# function read_velocities(sim::MDSimulation, filename::AbstractString)
+# function read_velocities(sim::MolecularDynamic, filename::AbstractString)
 
-function add_output(sim::MDSimulation, out::BaseOutput)
-    push!(sim.outputs, out)
+function add_output(sim::MolecularDynamic, output::BaseOutput)
+    if !ispresent(sim, output)
+        push!(sim.outputs, output)
+    else
+        warn("$output is aleady present in this simulation")
+    end
+    return sim.outputs
+end
+
+function add_compute(sim::MolecularDynamic, compute::BaseCompute)
+    if !ispresent(sim, compute)
+        push!(sim.computes, compute)
+    else
+        warn("$compute is aleady present in this simulation")
+    end
+    return sim.computes
+end
+
+function add_enforce(sim::MolecularDynamic, enforce::BaseEnforce)
+    if !ispresent(sim, enforce)
+        push!(sim.enforces, enforce)
+    else
+        warn("$enforce is aleady present in this simulation")
+    end
+    return sim.enforces
+end
+
+function add_check(sim::MolecularDynamic, check::BaseCheck)
+    if !ispresent(sim, check)
+        push!(sim.checks, check)
+    else
+        warn("$check is aleady present in this simulation")
+    end
+    return sim.checks
+end
+
+function ispresent(sim::MolecularDynamic, algo)
+    algo_type = typeof(algo)
+    for field in [:checks, :computes, :outputs, :enforces]
+        for elem in getfield(sim, field)
+            if isa(elem, algo_type)
+                return true
+            end
+        end
+    end
+    return false
 end
 
 @doc "
-`set_frame(sim::MDSimulation, frame::Frame)`
+`set_frame(sim::MolecularDynamic, frame::Frame)`
 
 Set the simulation frame to `frame`, and update internal values
 " ->
-function set_frame(sim::MDSimulation, frame::Frame)
+function set_frame(sim::MolecularDynamic, frame::Frame)
     sim.frame = frame
     sim.cell = frame.cell
     sim.data[:frame] = sim.frame
@@ -88,4 +122,12 @@ function set_frame(sim::MDSimulation, frame::Frame)
     natoms = size(sim.frame)
     sim.frame.velocities = Array3D(Float64, natoms)
     return nothing
+end
+
+function set_integrator(sim::MolecularDynamic, integrator::BaseIntegrator)
+    sim.integrator = integrator
+end
+
+function set_forces_computation(sim::MolecularDynamic, forces_computer::BaseForcesComputer)
+    sim.forces_computer = forces_computer
 end

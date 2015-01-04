@@ -1,7 +1,8 @@
+# Loading the Jumos module before anything else
 using Jumos
 
 # Molecular Dynamics with 1.0fs timestep
-sim = Simulation("MD", 1.0)
+sim = MolecularDynamic(1.0)
 
 # Create the simulation cell : cubic simulation cell with a width of 10A
 set_cell(sim, (10.0,))
@@ -25,5 +26,5 @@ out_trajectory.frequency = 10
 
 run!(sim, 5000)
 
-# Simulation scripts are normal julia scripts !
+# Simulation scripts are normal Julia scripts !
 println("All done")

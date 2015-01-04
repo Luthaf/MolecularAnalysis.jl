@@ -25,8 +25,8 @@ function show(io::IO, e::TrajectoryIOError)
 end
 
 
-abstract AbstractReaderIO <: TrajectoryIO
-type Reader{T<:AbstractReaderIO}
+abstract FormatReader <: TrajectoryIO
+type Reader{T<:FormatReader}
     natoms::Int
     nsteps::Int
     current_step::Int
@@ -34,7 +34,7 @@ type Reader{T<:AbstractReaderIO}
     reader::T
 end
 
-function Reader(r::AbstractReaderIO, topology=Topology())
+function Reader(r::FormatReader, topology=Topology())
     natoms, nsteps = get_traj_infos(r)
     if natoms > 0 && size(topology) == 0
         topology = dummy_topology(natoms)
@@ -45,13 +45,13 @@ end
 import Jumos: Frame
 Frame(reader::Reader) = Frame(reader.topology)
 
-abstract AbstractWriterIO <: TrajectoryIO
-type Writer{T<:AbstractWriterIO}
+abstract FormatWriter <: TrajectoryIO
+type Writer{T<:FormatWriter}
     current_step::Int
     writer::T
 end
 
-Writer(IOWriter::AbstractWriterIO) = Writer(0, IOWriter)
+Writer(IOWriter::FormatWriter) = Writer(0, IOWriter)
 Frame(writer::Writer) = Frame(writer.topology)
 
 # These dicts stores associations between extensions and file types.
@@ -61,32 +61,21 @@ TRAJECTORIES_WRITERS = Dict{String, (String, DataType)}()
 
 function register_reader(;extension="", filetype="", reader=Any)
     extension == "" && error("Default extention can not be empty")
-    reader <: AbstractReaderIO || error("reader should be a subtype of AbstractReaderIO")
+    reader <: FormatReader || error("reader should be a subtype of FormatReader")
     TRAJECTORIES_READERS[extension] = (filetype, reader)
     # TODO: add check on methods
 end
 
 function register_writer(;extension="", filetype="", writer=Any)
     extension == "" && error("Default extention can not be empty")
-    writer <: AbstractWriterIO || error("writer should be a subtype of AbstractWriterIO")
+    writer <: FormatWriter || error("writer should be a subtype of FormatWriter")
     TRAJECTORIES_WRITERS[extension] = (filetype, writer)
     # TODO: add check on methods
 end
 
-#===============================================================================
-                Iterator interface for trajectories IO
-
-All the new reader/writer should implement the following methods:
-
-    - read_next_frame!(t::Reader, f::Frame)
-        Reads the next frame in f if their is one, update t.current_step.
-        Raise an error in case of failure
-        Return true if their is some other frame to read, false otherwise
-    - read_frame!(t::Reader, step::Integer, f::Frame)
-        Reads the frame at step "step" and update t.current_step
-        Raise an error in the case of failure
-        Return true if their is a frame after the step "step", false otherwise
-===============================================================================#
+# ============================================================================ #
+#                 Iterator interface for trajectories IO
+# ============================================================================ #
 
 # Only reads some specific steps
 function eachframe(t::Reader, range::Range{Integer})
@@ -112,19 +101,19 @@ function eachframe(t::Reader; start=1)
     return Task(_it)
 end
 
-function read_next_frame!{T<:AbstractReaderIO}(t::Reader{T}, ::Frame)
+function read_next_frame!{T<:FormatReader}(t::Reader{T}, ::Frame)
    throw(NotImplementedError("Method read_next_frame! not implemented for "*
                              "$(typeof(t.reader)) trajectory type"))
 end
 
-function read_frame!{T<:AbstractReaderIO}(t::Reader{T}, ::Integer, ::Frame)
+function read_frame!{T<:FormatReader}(t::Reader{T}, ::Integer, ::Frame)
     throw(NotImplementedError("Method read_frame! not implemented for "*
                               "$(typeof(t.reader)) trajectory type"))
 end
 
-#===============================================================================
-                            Trajectory formats
-===============================================================================#
+# ============================================================================ #
+#                             Trajectory formats
+# ============================================================================ #
 
 function get_in_kwargs(kwargs, key::Symbol, default)
     value = default
@@ -160,35 +149,37 @@ Keyword arguments
 """ ->
 function opentraj(filename::String; mode="r", topology="", kwargs...)
     extension = split(strip(filename), ".")[end]
-    topo = Topology()
     if mode == "r"
+        if haskey(TRAJECTORIES_READERS, extension)
+            trajtype, reader = TRAJECTORIES_READERS[extension]
+            info(".$extension extension, assuming $trajtype trajectory at input")
+            FormatReader = reader(filename; kwargs...)
+        else
+            error("The '$extension' extension is not recognized. " *
+                  "Please provide a trajectory type.")
+        end
+        natoms, _ = get_traj_infos(FormatReader)
         if topology != ""
             topo = Topology(topology)
         else
             info("You may want to use atomic names, providing a topology file")
+            topo = dummy_topology(natoms)
         end
-        if haskey(TRAJECTORIES_READERS, extension)
-            trajtype, reader = TRAJECTORIES_READERS[extension]
-            info(".$extension extension, assuming $trajtype trajectory at input")
-            IOreader = reader(filename; kwargs...)
-            return Reader(IOreader, topo)
-        else
-            error("The '$extension' extension is not recognized. " *
-                  "Please provide a trajectory type.")
-        end
+        return Reader(FormatReader, topo)
     elseif mode =="w"
         if haskey(TRAJECTORIES_WRITERS, extension)
             trajtype, writer = TRAJECTORIES_WRITERS[extension]
             info(".$extension extension, assuming $trajtype trajectory at output")
-            IOwriter = writer(filename; kwargs...)
-            return Writer(IOwriter)
+            FormatWriter = writer(filename; kwargs...)
         else
             error("The '$extension' extension is not recognized. " *
                   "Please provide a trajectory type.")
         end
+        return Writer(FormatWriter)
     else
         error("Only read ('r') and write ('w') modes are supported")
     end
+    return nothing
 end
 
 Reader(filename::String; kwargs...) = opentraj(filename; mode="r", kwargs...)

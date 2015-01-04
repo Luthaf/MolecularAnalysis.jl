@@ -9,7 +9,7 @@
 # ============================================================================ #
 
 import Base: show
-export Simulation, MDSimulation, run!
+export MolecularDynamic, run!
 
 abstract Simulation
 abstract BaseForcesComputer
@@ -33,7 +33,7 @@ function show(io::IO, e::SimulationConfigurationError)
     print(io, e.msg)
 end
 
-type MDSimulation <: Simulation
+type MolecularDynamic <: Simulation
     # Algorithms
     interactions    :: Interactions
     forces_computer :: BaseForcesComputer
@@ -53,7 +53,7 @@ type MDSimulation <: Simulation
 end
 
 # This define the default values for a simulation !
-function MDSimulation(integrator=VelocityVerlet(1.0))
+function MolecularDynamic(integrator=VelocityVerlet(1.0))
     interactions = Interactions()
     forces_computer = NaiveForces()
 
@@ -69,7 +69,7 @@ function MDSimulation(integrator=VelocityVerlet(1.0))
     frame = Frame(topology)
     data = Dict(:frame => frame)
 
-    return MDSimulation(interactions,
+    return MolecularDynamic(interactions,
                         forces_computer,
                         integrator,
                         enforces,
@@ -86,7 +86,7 @@ function MDSimulation(integrator=VelocityVerlet(1.0))
 end
 
 # Convenient method.
-MDSimulation(timestep::Real) = MDSimulation(VelocityVerlet(timestep))
+MolecularDynamic(timestep::Real) = MolecularDynamic(VelocityVerlet(timestep))
 
 
 include("MD/forces.jl")
@@ -99,15 +99,16 @@ include("MD/initial_velocities.jl")
 
 
 @doc "
-`run!(sim::MDSimulation, nsteps::Integer)`
+`run!(sim::MolecularDynamic, nsteps::Integer)`
 
 Run a Molecular Dynamics simulation for nsteps steps.
 " ->
-function run!(sim::MDSimulation, nsteps::Integer)
+function run!(sim::MolecularDynamic, nsteps::Integer)
 
     sim.masses = atomic_masses(sim.topology)
 
     check_settings(sim)
+    setup(sim)
 
     for i=1:nsteps
         integrate(sim)
@@ -121,18 +122,17 @@ function run!(sim::MDSimulation, nsteps::Integer)
 end
 
 @doc "
-`check_settings(sim::MDSimulation)`
+`check_settings(sim::MolecularDynamic)`
 
 Check that the simulation is consistent, and that every information has been
 set by the user.
 " ->
-function check_settings(sim::MDSimulation)
+function check_settings(sim::MolecularDynamic)
     check_interactions(sim)
     check_masses(sim)
-    setup_outputs(sim)
 end
 
-function check_interactions(sim::MDSimulation)
+function check_interactions(sim::MolecularDynamic)
     atomic_types = sim.topology.atom_types
 
     atomic_pairs = Set{(Integer, Integer)}()
@@ -161,7 +161,7 @@ function check_interactions(sim::MDSimulation)
     end
 end
 
-function check_masses(sim::MDSimulation)
+function check_masses(sim::MolecularDynamic)
     if countnz(sim.masses) != size(sim.topology)
         bad_masses = Set()
         for (i, val) in enumerate(sim.masses)
@@ -176,7 +176,12 @@ function check_masses(sim::MDSimulation)
     end
 end
 
-function setup_outputs(sim::MDSimulation)
+# Setup the needed values for outputs and enforces
+function setup(sim::MolecularDynamic)
+    for enforce in sim.enforces
+        setup(enforce, sim)
+    end
+
     for output in sim.outputs
         setup(output, sim)
     end
@@ -185,20 +190,20 @@ end
 @doc "
 Integrate the equations of motion
 " ->
-function integrate(sim::MDSimulation)
+function integrate(sim::MolecularDynamic)
     sim.integrator(sim)
 end
 
-function get_forces!(sim::MDSimulation)
+function get_forces!(sim::MolecularDynamic)
     sim.forces = sim.forces_computer(sim.forces, sim.frame, sim.interactions)
 end
 
 @doc "
 Enforce a parameter in simulation like temperature or presure or volume, …
 " ->
-function enforce(sim::MDSimulation)
+function enforce(sim::MolecularDynamic)
     for callback in sim.enforces
-        callback(sim.frame)
+        callback(sim)
     end
 end
 
@@ -206,7 +211,7 @@ end
 Check the physical consistency of the simulation : number of particles is
 constant, global velocity is zero, …
 " ->
-function check(sim::MDSimulation)
+function check(sim::MolecularDynamic)
     for callback in sim.checks
         callback(sim)
     end
@@ -217,7 +222,7 @@ end
 Compute values of interest : temperature, total energy, radial distribution
 functions, diffusion coefficients, …
 " ->
-function compute(sim::MDSimulation)
+function compute(sim::MolecularDynamic)
     for callback in sim.computes
         callback(sim)
     end
@@ -225,7 +230,7 @@ end
 
 @doc "Output data to files : trajectories, energy as function of time, …
 " ->
-function output(sim::MDSimulation)
+function output(sim::MolecularDynamic)
     context = sim.data
     context[:step] = sim.frame.step
     for out in sim.outputs
@@ -236,6 +241,15 @@ function output(sim::MDSimulation)
             out.current += 1
         end
     end
+end
+
+function have_compute{T<:BaseCompute}(sim::MolecularDynamic, compute_type::Type{T})
+    for compute in sim.computes
+        if isa(compute, compute_type)
+            return true
+        end
+    end
+    return false
 end
 
 include("UI.jl")

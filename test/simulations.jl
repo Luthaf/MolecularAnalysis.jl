@@ -31,7 +31,7 @@ short = Potential(lj, cutoff=8.0)
 @test short(3.) == lj(3.0) + short.e_cutoff
 
 # Test the simulations
-sim = Simulation("MD", 1.0)
+sim = MolecularDynamic(1.0)
 
 top = Topology(4)
 for i=1:4
@@ -74,5 +74,21 @@ run!(sim, 500)
 Ekin_f, Epot_f, Etot_f = energy(sim)
 
 @test isapprox(Etot_f, Etot, rtol=1e-3)
+
+# Thermostating at 300K: Berendsen thermostat
+add_enforce(sim, BerendsenThermostat(300, 10))
+create_velocities(sim, 200)
+run!(sim, 1000)
+
+T_end = T(sim)
+@test isapprox(T_end, 300, atol=10)
+
+# Thermostating at 300K: velocity rescale thermostat
+add_enforce(sim, VelocityRescaleThermostat(300, 10))
+create_velocities(sim, 200)
+run!(sim, 1000)
+
+T_end = T(sim)
+@test isapprox(T_end, 300, atol=15)
 
 rm(tmpname)

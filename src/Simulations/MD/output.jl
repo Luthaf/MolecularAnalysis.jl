@@ -14,7 +14,7 @@ export TrajectoryOutput, CustomOutput, EnergyOutput
 
 # abstract BaseOutput -> Defined in MolecularDynamics.jl
 
-function setup(::BaseOutput, ::MDSimulation)
+function setup(::BaseOutput, ::MolecularDynamic)
     return nothing
 end
 
@@ -62,7 +62,7 @@ function CustomOutput(filename::String, values::Vector{Symbol}, frequency=1;
     write(file, header * EOL)
     s = "# "
     for name in values
-        s *= string(name)
+        s *= string(name) * "   "
     end
     write(file, s * EOL)
     return CustomOutput(file, values, frequency, 0)
@@ -107,7 +107,7 @@ function write(out::EnergyOutput, context::Dict)
     write(out.file, s * EOL)
 end
 
-function setup(::EnergyOutput, sim::MDSimulation)
+function setup(::EnergyOutput, sim::MolecularDynamic)
     if !have_compute(sim, TemperatureCompute)
         push!(sim.computes, TemperatureCompute())
     end
@@ -115,13 +115,4 @@ function setup(::EnergyOutput, sim::MDSimulation)
         push!(sim.computes, EnergyCompute())
     end
     return nothing
-end
-
-function have_compute{T<:BaseCompute}(sim::MDSimulation, compute_type::Type{T})
-    for compute in sim.computes
-        if isa(compute, compute_type)
-            return true
-        end
-    end
-    return false
 end
